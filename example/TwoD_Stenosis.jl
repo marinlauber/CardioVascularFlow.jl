@@ -1,14 +1,19 @@
 using WaterLily,StaticArrays,WriteVTK,Plots
 include("/home/marin/Workspace/Tutorials-WaterLily/src/TwoD_plots.jl")
 
-function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array)
-    h(x) = 5L ≤ x ≤ 6L ? 0.5*(1-cos(2π*x/L)) : 0
+function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
+    h(x::T) where T = 5L ≤ x ≤ 6L ? convert(T,√stenosis*L/4*0.5*(1-cos(2π*x/L))) : zero(T)
     function sdf(x,t)
         r = abs(x[2]-L/2) # move to center of pipe
-        -(r - L/2 + 1.5 + √stenosis*L/4*h(x[1])) # remove radius and add stenosis (and the ghost)
+        L/2 - r - 1.5f0 - h(x[1]) # remove radius and add stenosis (and the ghost)
     end
     body = AutoBody(sdf)
-    Simulation((20L,L), (U,0), L; ν=U*L/Re, body, mem, exitBC=true)
+    function u_pipe(i,x,t)
+        i ≠ 1 && return zero(T)
+        r = x[2]-L/2 # move to center of pipe
+        convert(T,ifelse(r<L/2-1.5f0,1-r^2/L^2,0)) # remove radius and add stenosis (and the ghost)
+    end
+    Simulation((20L,L), u_pipe, L; U, ν=U*L/Re, body, mem, T, exitBC=false)
 end
 
 function profile!(sim,profiles) # measure velocity profiles at certain locations
@@ -44,4 +49,4 @@ end
 # h(x) = 5 ≤ x ≤ 6 ? √stenosis*0.125*(1-cos(2π*x)) : 0
 # plot!(p,0:0.01:10,h.(0:0.01:10),color=:black,lw=2,label=:none)
 # plot!(p,0:0.01:10,1.0.-h.(0:0.01:10),color=:black,lw=2,label=:none)
-# p
+# savefig(p,"velocity_profiles.png")
