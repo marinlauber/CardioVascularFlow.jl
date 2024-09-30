@@ -1,4 +1,5 @@
 using LinearAlgebra: dot, norm
+using StatsBase
 """
     ellipse(p, ab; itr=5)
     -iter: Number of Newton iterations
@@ -40,4 +41,45 @@ _vbody(a::Simulation) = a.flow.V |> Array;
 custom_attrib = Dict(
     "u" => velocity, "p" => pressure, "v" => _vbody,
     "d" => _body, "ω" => vorticity, "λ₂" => lamda,
-)# this 
+)# this
+
+function profile!(sim,profiles;loc=[1,2]) # measure velocity profiles at certain locations
+    l = []
+    for x ∈ loc.*sim.L
+        push!(l,azimuthal_avrg(sim.flow.u[Int(x),:,:,1]))
+    end
+    push!(profiles,l)
+end
+Base.hypot(I::CartesianIndex) = √sum(abs2,I.I)
+function azimuthal_avrg(data; center=nothing, binsize=1.0)
+    """
+    Calculate the azimuthally averaged radial profile.
+    image - The 2D image
+    center - The [x,y] pixel coordinates used as the center. The default is 
+             None, which then uses the center of the image (including 
+             fractional pixels).
+    binsize - size of the averaging bin.  Can lead to strange results if
+        non-binsize factors are used to specify the center and the binsize is
+        too large
+    """
+    # Calculate the indices from the image
+    CIs = CartesianIndices(data)
+    isnothing(center) && (center = (maximum(CIs)-minimum(CIs)).I.÷2)
+    
+    # radial distance from the center, make it a vector
+    r = weights(hypot.(collect(CIs .- CartesianIndex(center)))).values
+    
+    # the 'bins' as initially defined are lower/upper bounds for each bin
+    # so that values will be in [lower,upper)  
+    nbins = Int(round(maximum(r) / binsize)+1)
+    maxbin = nbins * binsize
+    bins = range(0,maxbin;length=nbins+1)
+    # but we're probably more interested in the bin centers than their left or right sides...
+    bin_centers = (bins[1:end-1].+bins[2:end])/2.0
+    r_weights = fit(Histogram, r, bins, closed=:left).weights
+
+    # compute the azimuthal average
+    radial_prof = fit(Histogram, r, weights(data), bins, closed=:left).weights ./ r_weights
+    
+    return bin_centers, radial_prof
+end
