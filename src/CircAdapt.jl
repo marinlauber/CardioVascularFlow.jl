@@ -1,5 +1,17 @@
-using StaticArrys
+using StaticArrays
 using LinearAlgebra
+using DifferentialEquations, BenchmarkTools
+
+# function lorenz(u, p, t)
+#     dx = 10.0 * (u[2] - u[1])
+#     dy = u[1] * (28.0 - u[3]) - u[2]
+#     dz = u[1] * u[2] - (8 / 3) * u[3]
+#     SA[dx, dy, dz]
+# end
+# u0 = SA[1.0, 0.0, 0.0]
+# tspan = (0.0, 100.0)
+# prob = ODEProblem(lorenz, u0, tspan)
+# @btime solve(prob, Tsit5());
 
 struct Valve
 
@@ -36,4 +48,20 @@ end
 
 function step!(::CircAdapt{T}) where T
     nothing
+end
+
+abstract type AbstractCardioVascular end
+mutable struct Tube <: AbstractCardioVascular{T}
+    Aₜ     :: T
+    Aₜwall :: T
+    Aₜref  :: T
+    a.pref :: T
+end
+λₜ(a::Tube) = (1+a.Aₜ/a.Aₜwall)^(1/3)
+λₜ(a::Tube) = (1+a.Aₜ/a.Aₜwall)^(1/3)
+pₜ(a::Tube) = a.pref*((a.Aₜwall+2a.Aₜ) / (a.Aₜwall+2a.Aₜref))^(k/3-1)
+# @fastmath σₜ(λ,λ₀;σ₀=1,kt=1) = σ₀*(λ/λ₀)^kt # mean cauchy stress
+
+mutable struct Ventricle <: AbstractCardioVascular
+
 end

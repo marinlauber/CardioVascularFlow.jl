@@ -119,7 +119,6 @@ class Calculix(object):
         self.file.close()
 
 
-
 class Mesh:
     def __init__(self, filename):
         self.nodes = []
@@ -274,7 +273,8 @@ class Mesh:
         # write all the nodes
         for ids,x,y,z in self.nodes:
             output.write("%d, %.8f, %.8f, %.8f\n" % (ids,x,y,z))
-        output.write("*ELEMENT, type=S%d, ELSET=PLATE\n" % (3*o) )
+        order = len(self.surface[0][0])-1 # what triangles re we using
+        output.write("*ELEMENT, type=S%d, ELSET=PLATE\n" % order )
         # for each surface, write the elements
         for srf in self.surface:
             for el in srf:
