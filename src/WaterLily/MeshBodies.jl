@@ -3,6 +3,7 @@ using GeometryBasics
 using WaterLily: AbstractBody,@loop,measure
 using StaticArrays
 using ForwardDiff
+using NearestNeighbors
 
 struct MeshBody{T,F<:Function} <: AbstractBody
     mesh  :: GeometryBasics.Mesh
@@ -11,6 +12,7 @@ struct MeshBody{T,F<:Function} <: AbstractBody
     scale :: T
     half_thk::T #half thickness
     boundary::Bool
+    tree :: KDTree
 end
 function MeshBody(fname;map=(x,t)->x,scale=1.0,boundary=true,thk=0f0,T=Float32)
     tmp = endswith(fname,".inp") ? load_inp(fname) : load(fname)
@@ -18,7 +20,8 @@ function MeshBody(fname;map=(x,t)->x,scale=1.0,boundary=true,thk=0f0,T=Float32)
     mesh = GeometryBasics.Mesh(points,GeometryBasics.faces(tmp))
     bbox = Rect(mesh.position)
     bbox = Rect(bbox.origin.-max(4,thk),bbox.widths.+max(8,2thk))
-    MeshBody(mesh,map,bbox,T(scale),T(thk/2),boundary)
+    tree = KDTree(hcat(center.(mesh)...))
+    MeshBody(mesh,map,bbox,T(scale),T(thk/2),boundary,tree)
 end
 Base.copy(b::MeshBody) = MeshBody(GeometryBasics.Mesh(b.mesh.position,GeometryBasics.faces(b.mesh)),
                                   b.map,Rect(b.bbox),b,scale,b.half_thk,b.boundary)
@@ -47,6 +50,8 @@ function load_inp(fname; facetype=GLTriangleFace, pointtype=Point3f)
         elseif BlockType == Val{:ElementBlock}()
             nodes = parse.(Int,split(line,",")[2:end])
             push!(faces, TriangleFace{Int}(facetype([findfirst(==(node),node_idx) for node in nodes])...)) # parse the face
+        else
+            continue
         end
     end
     return Mesh(points, faces); close(fs);
@@ -54,6 +59,7 @@ end
 function parse_blocktype!(block, io, line)
     contains(line,"*NODE") && return block=Val{:NodeBlock}(),readline(io)
     contains(line,"*ELEMENT") && return block=Val{:ElementBlock}(),readline(io)
+    contains(line,"*ELSET, ELSET=") && return block=Val{:SkipBlock}(),readline(io)
     return block, line
 end
 
@@ -130,7 +136,7 @@ rect = Rect(0,0,0,1,1,1) # origin and widths
 WaterLily.sdf(body::MeshBody,x,t;kwargs...) = (d=measure(body.mesh,body.map(x,t),t;kwargs...)[1];
                                                !body.boundary && (d = abs(d)-body.half_thk); return d) # if the mesh is not a boundary, we need to adjust the distance
 
-function WaterLily.measure(body::MeshBody,x,t;kwargs...)
+function WaterLily.measure(body::MeshBody,x,t,;kwargs...)
     # eval d=map(x,t)-x, and n̂
     ξ = body.map(x,t)
     #  if we are outside of the bouding box, we can measure approx
@@ -144,9 +150,22 @@ function WaterLily.measure(body::MeshBody,x,t;kwargs...)
     dot = ForwardDiff.derivative(t->body.map(x,t), t)
     return (d,n,-J\dot)
 end
-function test_measure(b,x,t)
-    a = measure(b,x,t)
-end
+# function measure_nn(body::MeshBody,x,t;kwargs...)
+#     # eval d=map(x,t)-x, and n̂
+#     ξ = body.map(x,t)
+#     # measure with the KDTree
+#     u,_ = nn(@views(body.tree), ξ)
+#     v = x-locate(body.mesh[u],x)
+#     n = normal(body.mesh[u])
+#     d = sign(sum(v.*n))*√sum(abs2,v) # signed Euclidian distance
+#     !body.boundary && (d = abs(d)-body.half_thk) # if the mesh is not a boundary, we need to adjust the distance
+
+#     # The velocity depends on the material change of ξ=m(x,t):
+#     #   Dm/Dt=0 → ṁ + (dm/dx)ẋ = 0 ∴  ẋ =-(dm/dx)\ṁ
+#     J = ForwardDiff.jacobian(x->body.map(x,t), x)
+#     dot = ForwardDiff.derivative(t->body.map(x,t), t)
+#     return (d,n,-J\dot)
+# end
 
 using LinearAlgebra: cross
 """
@@ -168,23 +187,16 @@ end
 Measure the distance `d` and normal `n` to the mesh at point `x` and time `t`.
 """
 function WaterLily.measure(mesh::GeometryBasics.Mesh,x::SVector{T},t;kwargs...) where T
-    tmp = [d²_fast(mesh[I],x) for I in CartesianIndices(mesh)] # can we awoid this?
-    idx = argmin(tmp); n = normal(mesh[idx])
-    v = x-locate(mesh[idx],x)
-    d = sign(sum(v.*n))*√sum(abs2,v) # signed Euclidian distance
+    u=1; a=b=d²_fast(mesh[1],x) # fast method
+    for I in 2:length(mesh)
+        b = d²_fast(mesh[I],x)
+        b<a && (a=b; u=I) # Replace current best
+    end
+    n = normal(mesh[u])
+    v = x-locate(mesh[u],x) # signed Euclidian distance
+    d = sign(sum(v.*n))*√sum(abs2,v) 
     return d,n
-end # 32.313 μs (1 allocation: 16.12 KiB)
-# function WaterLily.measure(mesh::GeometryBasics.Mesh,x::SVector{T},t;kwargs...) where T
-#     u=1; b=d²_fast(mesh[1],x) # fast method
-#     for i in 2:length(mesh)
-#         a=b; b = d²_fast(mesh[i],x)
-#         a>b && (u=i)
-#     end
-#     n = normal(mesh[u])
-#     v = x-locate(mesh[u],x) # signed Euclidian distance
-#     d = sign(sum(v.*n))*√sum(abs2,v) 
-#     return d,n
-# end # 4.266 μs (0 allocations: 0 bytes)
+end # 120.029 ns (0 allocations: 0 bytes)d # 4.266 μs (0 allocations: 0 bytes)
 
 # use divergence theorem to calculate volume of surface mesh
 # F⃗⋅k⃗ = -⨕pn⃗⋅k⃗ dS = ∮(C-ρgz)n⃗⋅k⃗ dS = ∫∇⋅(C-ρgzk⃗)dV = ρg∫∂/∂z(ρgzk⃗)dV = ρg∫dV = ρgV #
@@ -197,18 +209,11 @@ function volume(body::MeshBody)
     return vol
 end
 
-struct KDTree{V <: AbstractVector, M <: MinkowskiMetric, T, TH} <: NNTree{V,M}
-    data::Vector{V}
-    hyper_rec::HyperRectangle{TH}
-    indices::Vector{Int}
-    metric::M
-    split_vals::Vector{T}
-    split_dims::Vector{UInt16}
-    tree_data::TreeData
-    reordered::Bool
-end
-
-# using NearestNeighbors
-function KDTree(mesh::GeometryBasics.Mesh)
-    
+import WaterLily: interp
+function forces(body::MeshBody,flow::Flow)
+    f = zeros((3,len(body.mesh)))
+    for (i,tri) in enumerate(body.mesh)
+        f[:,i] .= normal(tri) .* area(tri) * WaterLily.interp(center(tri) .* normal(tri), flow.p)
+    end
+    return f
 end
