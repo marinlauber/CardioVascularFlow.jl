@@ -1,7 +1,6 @@
 using StaticArrays
 using WaterLily
 using BenchmarkTools
-using NearestNeighbors
 using Plots
 
 mutable struct Tree
@@ -9,8 +8,8 @@ mutable struct Tree
     points::AbstractArray
     C::SVector # these point to boxes[1]
     R::SVector # these point to boxes[1]
-    function Tree(points::AbstractArray{T,2}; Nmax=64) where T
-        b = bounding_box(points,δ=0.1)
+    function Tree(points::AbstractArray{T,2}; δ=4, Nmax=64) where T
+        b = bounding_box(points,δ=δ) 
         boxes,idx = AbstractBox[b],Int[1]
         # split the box in the longest direction
         left, right = split(b)
@@ -55,7 +54,7 @@ left,right = split(box)
 # @assert all(right.C.≈SA[0.25,0.,0.]) && all(right.R.≈SA[0.25,0.5,0.5])
 
 # check if a point is outside the box
-WaterLily.inside(x,b::Union{Tree,Bbox})::Bool = (all(b.C-1.05b.R .≤ x) && all(x .≤ b.C+1.05b.R))
+WaterLily.inside(x,b::Union{Tree,Bbox})::Bool = (all(b.C-b.R .≤ x) && all(x .≤ b.C+b.R))
 point = [0.,0.,0.]
 b = Bbox(SA[0.0,0.0,0.0],SA[0.5,0.5,0.5])
 @assert inside(point,b) 
@@ -67,18 +66,20 @@ function bounding_box(points::AbstractArray{T,2};δ=1e-2) where T
     vmax = SVector(ntuple(i->typemin(T),size(points,1)))
     vmin = SVector(ntuple(i->typemax(T),size(points,1)))
     for p in eachcol(points)
+        p = SA[p...]
         vmin = min.(p, vmin)
         vmax = max.(p, vmax)
     end
     o = (vmin + vmax)/2
     r = (vmax - vmin)/2 .+ δ # make it a bit bigger
-    return Bbox(SA[o...],SA[r...],false)
+    return Bbox(o,r,false)
 end
 
 # some points
 points = rand(3,10)
 box = bounding_box(points)
-@btime bounding_box($points) # 25.775 μs (2594 allocations: 104.95 KiB)
+@btime bounding_box($points) # 2.071 μs (115 allocations: 5.19 KiB)# 25.775 μs (2594 allocations: 104.95 KiB)
+@code_warntype bounding_box(points)
 left, right = split(box)
 
 # check if points are inside the box
@@ -93,7 +94,6 @@ function tree!(list, idx, Is, points::AbstractArray{T,2}, b::Bbox, Nmax) where T
     push!(idx,Is) # add the index location
     # if we are on a leaf, we push a leaf box on the list
     if (length(points)<Nmax)
-        @show typeof(points)
         push!(list, Bbox(b.C,1.2*b.R,true,points))
         return nothing
     end
@@ -136,7 +136,7 @@ function _measure(tree::Tree,Is,x::SVector)
     return _measure(tree, inleft ? 2Is : 2Is+1, x)
 end
 # point_dist(points,indices,x::SVector) = √minimum(sum(abs2,points[:,indices].-x,dims=1))
-dist(C,R,x) = √sum(abs2,max.(0,abs.(x-C)-R))-min(R...) # distance to a bbox
+dist(C,R,x) = √sum(abs2,max.(0,abs.(x-C)-R))+min(R...) # distance to a bbox
 dist(points,x) = √minimum(sum(abs2,points.-x,dims=1)) # distance to points
 brute_force(points,x) = √minimum(sum(abs2,points.-x,dims=1))
 
@@ -149,11 +149,11 @@ points[1,:] .= N*cos.(range(0,stop=2π,length=N)) .+ 2N
 points[2,:] .= N*sin.(range(0,stop=2π,length=N)) .+ 2N
 segments = map(i->[i,i%N+1],1:N) # connectivity of nodes
 
+# make a tree
 tree = Tree(points; Nmax=64);
 
-d = rand(1:size(tree.boxes,1))
 let
-    plot(title="KDTree - rand() = $d",dpi=300, aspect_ratio=:equal,legend=:none)
+    plot(title="KDTree",dpi=300, aspect_ratio=:equal,legend=:none)
     for (i,b) in enumerate(tree.boxes)
         b.C==b.R && continue # dummy box
         p1 = b.C - b.R
@@ -166,14 +166,6 @@ let
         annotate!(b.C[1], b.C[2], ("$i", 16, c, :center))
     end
     plot!(points[1,:],points[2,:],seriestype=:scatter,label=:none)
-    # x = 2rand(SVector{2}).-1
-    # idx = measure(tree,x)
-    # @show idx
-    # plot!([x[1]],[x[2]],seriestype=:scatter,label="x")
-    # plot!([x[1],points[1,idx]],[x[2],points[2,idx]],color=:red,label=:none)
-    # select a box and see what's inside
-    # idx = tree[d].indices
-    # plot!(points[1,idx],points[2,idx],seriestype=:scatter,label=:none)
 end
 
 # test some measure
@@ -183,17 +175,18 @@ C = tree.C; R = tree.R
 pts_selected = tree.boxes[20].indices;
 @btime dist($pts_selected,$x) #162.201 ns (4 allocations: 768 bytes) 
 
-@btime measure($tree,$x) #91.522 ns (7 allocations: 208 bytes) # 1.212 μs (37 allocations: 2.70 KiB)
+@btime measure($tree,$x) #69 ns (7 allocations: 208 bytes) # 1.212 μs (37 allocations: 2.70 KiB)
 @btime brute_force($points,$x) #1.689 μs (10 allocations: 6.25 KiB)
 
 # test on a grid
 M = 2^10
 σ = zeros(M,M)
+@btime @inside σ[I] = WaterLily.μ₀(brute_force(tree.points,loc(0,I)).-4,1) # 887.248 ms (13578572 allocations: 6.27 GiB)
 @btime @inside σ[I] = WaterLily.μ₀(measure(tree,loc(0,I)).-4,1) #160.230 ms (17850725 allocations: 813.04 MiB) # 254.503 ms (29340049 allocations: 1.29 GiB)
-@btime @inside σ[I] = WaterLily.μ₀(brute_force(tree,loc(0,I)).-4,1) # 887.248 ms (13578572 allocations: 6.27 GiB)
+# @btime @inside σ[I] = measure(tree,loc(0,I))
 let
     flood(σ,levels=30)
-    plot!(title="KDTree - rand() = $d",dpi=300, aspect_ratio=:equal,legend=:none)
+    plot!(title="KDTree", dpi=300, aspect_ratio=:equal,legend=:none)
     for (i,b) in enumerate(tree.boxes)
         b.C==b.R && continue # dummy box
         p1 = b.C - b.R
@@ -203,7 +196,6 @@ let
         plot!([p1[1],p2[1],p3[1],p4[1],p1[1]],[p1[2],p2[2],p3[2],p4[2],p1[2]],
                color=:black, lw=2,fill=false,alpha=0.3,label=:none)
         c = ifelse(b.leaf,:forestgreen,:brown3)
-        # annotate!(b.C[1], b.C[2], ("$i", 16, c, :center))
     end
     plot!()
 end
