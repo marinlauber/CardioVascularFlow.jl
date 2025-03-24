@@ -5,20 +5,20 @@ using WriteVTK
 using NearestNeighbors
 
 include("../src/WaterLily/MeshBodies.jl")
-
+path = "/home/marin/Workspace/CardioVascularFlow.jl/example/"
 function make_sphere(;L=32,Re=250,U=1)
     # make a body
     map(x,t) = x .- SA[L,L,L/2]
-    # body = MeshBody("/home/marin/Workspace/WaterLily/cube.stl";map,scale=L/4)
-    # body = MeshBody("/home/marin/Workspace/WaterLily/cube.inp";map,scale=L/6)
-    # body = MeshBody("/home/marin/Workspace/CalculiX/LIMO_heart/test_vol/geom.inp";map,scale=L/6)
+    body = MeshBody(path*"cube.stl";map,scale=L/4)
+    # body = MeshBody(path*"cube.inp";map,scale=L/6)
+    # body = MeshBody(path*"sphere.inp";map,scale=L/6)
     # @assert all(volume(body) .≈ (L/3)^3) # the volume is exact here!
-    body = MeshBody("/home/marin/Workspace/CardioVascularFlow.jl/example/3D_flapping/Solid/geom.inp";map,boundary=false,thk=2,scale=1.0)
+    # body = MeshBody(path*"3D_flap.inp";map,boundary=false,thk=2,scale=1.0)
     # generate sim
     Simulation((2L,2L,L), (U,0,0), L; ν=U*L/Re, body)
 end
 
-bb = AutoBody((x,t)->√sum(abs2,x)-32)
+# bb = AutoBody((x,t)->√sum(abs2,x)-32)
 
 # make a writer with some attributes
 velocity(a::Simulation) = a.flow.u |> Array;

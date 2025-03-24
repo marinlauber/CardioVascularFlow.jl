@@ -1,5 +1,23 @@
 using WaterLily,StaticArrays,WriteVTK,CUDA
-include("../src/utils.jl")
+# include("../src/utils.jl")
+
+# make a writer with some attributes
+vtk_velocity(a::Simulation) = a.flow.u |> Array;
+vtk_pressure(a::Simulation) = a.flow.p |> Array;
+vtk_body(a::Simulation) = (measure_sdf!(a.flow.σ, a.body, WaterLily.time(a.flow)); 
+                        a.flow.σ |> Array;)
+vtk_vorticity(a::Simulation) = (@inside a.flow.σ[I] = 
+                            WaterLily.curl(3,I,a.flow.u)*a.L/a.U;
+                            a.flow.σ |> Array;)
+vtk_vbody(a::Simulation) = a.flow.V |> Array;
+vtk_mu0(a::Simulation) = a.flow.μ₀ |> Array;
+vtk_lamda(a::Simulation) = (@inside a.flow.σ[I] = WaterLily.λ₂(I, a.flow.u);
+                        a.flow.σ |> Array;)
+
+custom_attrib = Dict(
+    "u" => vtk_velocity, "p" => vtk_pressure, "v" =>vtk_vbody,
+    "d" => vtk_body, "ω" => vtk_vorticity, "λ₂" => vtk_lamda,
+)# this
 
 # make the sim
 function make_sim3D(L=32;stenosis=0.5,U=1,Re=2500,mem=Array,T=Float32)
@@ -12,15 +30,17 @@ function make_sim3D(L=32;stenosis=0.5,U=1,Re=2500,mem=Array,T=Float32)
     function u_pipe(i,x,t)
         i ≠ 1 && return 0.f0
         r = √sum(abs2,SA[x[2],x[3]].-L/2.f0)
-        ifelse(r<L/2.f0-1.5f0,1.f0-r^2/L^2.f0,0.f0) # remove radius and add stenosis (and the ghost)
+        return r<L/2.f0-1.5f0 ? 1.f0-r^2/L^2.f0 : 0.f0 # remove radius and add stenosis (and the ghost)
     end
+    # pressure gradient required to drive the flow to u~1
+    g(i, t) = i == 1 ? U^2/(L/2)^2 : 0
     body = AutoBody(pipe)
     Simulation((10L,L,L), u_pipe, L; U=one(T), ν=U*L/Re, body, mem, T, exitBC=false)
 end
 
-sim = make_sim3D(64;mem=CuArray)
+sim = make_sim3D(96;mem=CuArray)
 wr = vtkWriter("ThreeD_Stenosis"; attrib=custom_attrib)
-t₀,duration,tstep = sim_time(sim),0.2,0.1;
+t₀,duration,tstep = sim_time(sim),50,0.1;
 
 # run
 @time for tᵢ in range(t₀,t₀+duration;step=tstep)

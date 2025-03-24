@@ -3,7 +3,7 @@ using GeometryBasics
 using WaterLily: AbstractBody,@loop,measure
 using StaticArrays
 using ForwardDiff
-using NearestNeighbors
+# using NearestNeighbors
 
 struct MeshBody{T,F<:Function} <: AbstractBody
     mesh  :: GeometryBasics.Mesh
@@ -12,7 +12,6 @@ struct MeshBody{T,F<:Function} <: AbstractBody
     scale :: T
     half_thk::T #half thickness
     boundary::Bool
-    tree :: KDTree
 end
 function MeshBody(fname;map=(x,t)->x,scale=1.0,boundary=true,thk=0f0,T=Float32)
     tmp = endswith(fname,".inp") ? load_inp(fname) : load(fname)
@@ -20,8 +19,7 @@ function MeshBody(fname;map=(x,t)->x,scale=1.0,boundary=true,thk=0f0,T=Float32)
     mesh = GeometryBasics.Mesh(points,GeometryBasics.faces(tmp))
     bbox = Rect(mesh.position)
     bbox = Rect(bbox.origin.-max(4,thk),bbox.widths.+max(8,2thk))
-    tree = KDTree(hcat(center.(mesh)...))
-    MeshBody(mesh,map,bbox,T(scale),T(thk/2),boundary,tree)
+    MeshBody(mesh,map,bbox,T(scale),T(thk/2),boundary)
 end
 Base.copy(b::MeshBody) = MeshBody(GeometryBasics.Mesh(b.mesh.position,GeometryBasics.faces(b.mesh)),
                                   b.map,Rect(b.bbox),b,scale,b.half_thk,b.boundary)

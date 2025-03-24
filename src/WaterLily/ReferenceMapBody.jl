@@ -4,17 +4,21 @@ using StaticArrays
 import WaterLily: @loop,CI,∂
 
 @inline F(i,j,I,ξ) = inv(∂(j,CI(I,i),ξ)+eps())
+# uniform field, no deformation gradient
+ξ = ones(10,10,2); apply!((i,x)->x[i], ξ)
+σ = ones(10,10)
+@inside σ[I] = F(1,1,I,ξ)
 @inline FFᵀ(i,j,I,ξ) = inv(∂(j,CI(I,i),ξ))*inv(∂(i,CI(I,j),ξ))
 @inline trFFᵀ(i,j,I::CartesianIndex{n},ξ) where n = sum(FFᵀ(i,i,I,ξ) for i ∈ 1:n)
 # plane-strain incompressible neo Hookean law
 @inline τ(i,j,I,ξ) = (FF(i,j,I,ξ)-ifelse(i==j,inv(3)*(trFFᵀ(i,j,I,ξ)+1),0))
 
 struct ReferenceMapBody{T,F1<:Function,F2<:Function,Vf<:AbstractArray{T}} <: AbstractBody
-    sdf::F1
-    map::F2
-    ξ  ::Vf # reference map field
-    ξ⁰ ::Vf # initial reference map field
-    V  ::Vf # Eulerian displacement field
+    sdf :: F1
+    map :: F2
+    ξ   :: Vf # reference map field
+    ξ⁰  :: Vf # initial reference map field
+    V   :: Vf # Eulerian displacement field
     function ReferenceMapBody(N::NTuple{D}, sdf, map=(x,t)->x; compose=true, T=Float32, f=Array) where D
         comp(x,t) = compose ? sdf(map(x,t),t) : sdf(x,t)
         Ng = N .+ 2; Nd = (Ng..., D)
@@ -98,19 +102,18 @@ import WaterLily: BCTuple,BDIM!,project!,BC!,exitBC!,conv_diff!,accelerate!,CFL,
 end
 scale_ξ!(a,scale) = @loop a.ξ[Ii] *= scale over Ii ∈ inside_u(front(size(a.ξ)))
 
-include("../../../Tutorials-WaterLily/src/TwoD_plots.jl")
-
 function circle(n,m;Re=250,U=1)
     radius, center = m/8, m/2
     body = ReferenceMapBody((n,m), (x,t)->√sum(abs2, x .- center) - radius)
     Simulation((n,m), (U,0), radius; ν=U*radius/Re, body)
 end
 
+using Plots
 # Initialize and run
 sim = circle(3*2^6,2^7)
 sim_gif!(sim,duration=10,clims=(-5,5),plotbody=true)
 
 # compute deformation gradient, should be identity tensor
-@SArray [F(i,j,CartesianIndex(10,10),sim.body.ξ) for i ∈ 1:2, j ∈ 1:2]
-@inside sim.flow.σ[I] = F(2,1,I,sim.body.ξ)
-flood(sim.flow.σ,shift=(-2,-1.5),cfill=:seismic)
+# @SArray [F(i,j,CartesianIndex(10,10),sim.body.ξ) for i ∈ 1:2, j ∈ 1:2]
+# @inside sim.flow.σ[I] = F(2,1,I,sim.body.ξ)
+# flood(sim.flow.σ,shift=(-2,-1.5),cfill=:seismic)

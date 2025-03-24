@@ -1,4 +1,4 @@
-using PreCICE
+# GismoInterface
 
 """
     An structure to hold the coupling data for WaterLily-Gismo coupling
