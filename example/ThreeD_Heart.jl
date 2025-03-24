@@ -3,6 +3,24 @@ using StaticArrays
 using WriteVTK
 include("../src/utils.jl")
 
+"""
+    Qcriterion2(I::CartesianIndex{3},u)
+
+Q-criterion is a deformation tensor metric to identify vortex cores.
+Also see Jeong, J., & Hussain, F., doi:[10.1017/S0022112095000462](https://doi.org/10.1017/S0022112095000462)
+"""
+function Qcriterion(I::CartesianIndex{3},u)
+    J = @SMatrix [∂(i,j,I,u) for i ∈ 1:3, j ∈ 1:3]
+    S,Ω = (J+J')/2,(J-J')/2
+    ## -0.5*sum(eigvals(S^2+Ω^2)) # this is also possible, but 2x slower
+    0.5*(√(tr(Ω*Ω'))^2-√(tr(S*S'))^2)
+end
+
+# compute the von Misses viscous stress tensor
+function von_misses(I,u)
+    S = WaterLily.S(I,u)
+end
+
 function heart(L=2^5;Re=5e2,mem=Array,U=1,AR=2,T=Float32)
     ## Define simulation size, geometry dimensions, & viscosity
     
