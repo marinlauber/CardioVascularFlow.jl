@@ -1,6 +1,9 @@
 using WaterLily,StaticArrays,WriteVTK,CUDA
 # include("../src/utils.jl")
 
+# Womersley solution to pulsatile flow in a pipe
+function Womersley()
+
 # make a writer with some attributes
 vtk_velocity(a::Simulation) = a.flow.u |> Array;
 vtk_pressure(a::Simulation) = a.flow.p |> Array;
@@ -19,9 +22,9 @@ custom_attrib = Dict(
     "d" => vtk_body, "ω" => vtk_vorticity, "λ₂" => vtk_lamda,
 )# this
 
-# make the sim
-function make_sim3D(L=32;stenosis=0.5,U=1,Re=2500,mem=Array,T=Float32)
-    h(x::T) where T = 3L ≤ x ≤ 4L ? convert(T,√stenosis*L/4*0.5*(1-cos(2π*x/L))) : zero(T)
+# make the sim, following Varghese et al. (2007 )J. Fluid Mech. vol. 582, pp. 253–280 doi:10.1017/S0022112007005848
+function make_sim3D(L=32;stenosis=0.25,U=1,Re=2500,mem=Array,T=Float32)
+    h(x::T) where T = 2L ≤ x ≤ 4L ? convert(T,L/2*√stenosis*(1-cos(2π*x/2L))/2) : zero(T)
     function pipe(x,t)
         r = √sum(abs2,SA[x[2],x[3]].-L/2.f0) # move to center of pipe
         L/2 - r - 1.5f0 - h(x[1]) # remove radius and add stenosis (and the ghost)
@@ -45,10 +48,20 @@ t₀,duration,tstep = sim_time(sim),50,0.1;
 # run
 @time for tᵢ in range(t₀,t₀+duration;step=tstep)
     sim_step!(sim,tᵢ;remeasure=false,verbose=false)
-    write!(wr,sim)
     println("tU/L=",round(tᵢ,digits=4),", Δt=",round(sim.flow.Δt[end],digits=3))
 end
+write!(wr,sim)
 close(wr)
+
+
+u = Array(sim.flow.u);
+measure_sdf!(sim.flow.σ, sim.body, WaterLily.time(sim.flow));
+sdf = Array(sim.flow.σ);
+σ = Array(sim.flow.σ);
+@inside σ[I] = ifelse(sdf[I]≥0,abs(WaterLily.curl(3,I,u)),NaN);
+flood(σ[:,:,49], clims=(-0.1,0.5), axis=([], false), cfill=:binary,
+      legend=false,border=:none,size=(10*sim.L,sim.L), dpi=600)
+savefig("pipe_vorticity.png")
 
 # # plot velocity profiles
 # using Plots
