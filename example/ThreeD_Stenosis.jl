@@ -2,7 +2,7 @@ using WaterLily,StaticArrays,WriteVTK,CUDA
 # include("../src/utils.jl")
 
 # Womersley solution to pulsatile flow in a pipe
-function Womersley()
+# function Womersley()
 
 # make a writer with some attributes
 vtk_velocity(a::Simulation) = a.flow.u |> Array;
@@ -29,14 +29,13 @@ function make_sim3D(L=32;stenosis=0.25,U=1,Re=2500,mem=Array,T=Float32)
         r = √sum(abs2,SA[x[2],x[3]].-L/2.f0) # move to center of pipe
         L/2 - r - 1.5f0 - h(x[1]) # remove radius and add stenosis (and the ghost)
     end
-    # analytical solution laminar pipe flow u/U ~ (1-y^2/L^2) ∀ y ∈ [0,L/2]
+    # analytical solution laminar pipe flow u/U ~ (1-y^2/R^2) ∀ y ∈ [0,L/2]
     function u_pipe(i,x,t)
         i ≠ 1 && return 0.f0
         r = √sum(abs2,SA[x[2],x[3]].-L/2.f0)
-        return r<L/2.f0-1.5f0 ? 1.f0-r^2/L^2.f0 : 0.f0 # remove radius and add stenosis (and the ghost)
+        return r<L/2.f0-1.5f0 ? 2.f0-2.f0.*r^2/(L/2.f0-1.5f0)^2.f0 : 0.f0 # remove radius and add stenosis (and the ghost)
     end
     # pressure gradient required to drive the flow to u~1
-    g(i, t) = i == 1 ? U^2/(L/2)^2 : 0
     body = AutoBody(pipe)
     Simulation((10L,L,L), u_pipe, L; U=one(T), ν=U*L/Re, body, mem, T, exitBC=false)
 end
