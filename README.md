@@ -8,7 +8,7 @@ Examples of cardiovascular flow and benchamrk cases simulations using [WaterLily
 
 The stenosis is modelled as a simple harmonic constriction of the form 
 ```math
-h(x,r) = \begin{cases}
+h(x,D) = \begin{cases}
 \sqrt{\text{stenosis}}\frac{1}{2}(1-2\cos(2π x/2D)), & x_0 \le x \le x_0+2D\\
 0, & \text{otherwise.}
 \end{cases}
@@ -33,7 +33,15 @@ In 3D, the simulation is axisymmetric and the results are radially averaged. The
 
 The FDA nozzle is a simple nozzle with a contraction and expansion that follows
 
-$$
-\begin{equation{}}
+```math
+S(x,D) = \begin{cases} min\{m₁(x-3D), D/3\} , & 0 ≤ x-3D ≤ L₁+L₂\\
+0, & \text{otherwise.}
+\end{cases}
+```
+where $L₁=4537/2400$, $L₂=10/3$ and m₁=$800/4537$ and $D$ is the initial diameters. The velocity field is initialized with a parabolic profile at the inlet
+```math
+\vec{u}(y) = \left[2U \left (1 - \frac{y^2}{(D/2)^2}\right), 0, 0 \right]
+```
+ and the results are shown below
 
 ![nozzle](figures/fda_nozzle_vorticity.png)
