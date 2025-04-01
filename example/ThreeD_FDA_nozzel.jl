@@ -66,7 +66,7 @@ end
 # sim = make_pipe(48;mem=CuArray)
 sim = make_FDA_nozzel(96;mem=CuArray)
 wr = vtkWriter("uBC_test"; attrib=custom_attrib)
-t₀,duration,tstep = sim_time(sim),50,0.1;
+t₀,duration,tstep = sim_time(sim),50,0.2;
 
 # run
 @time for tᵢ in range(t₀,t₀+duration;step=tstep)
@@ -76,31 +76,33 @@ t₀,duration,tstep = sim_time(sim),50,0.1;
 end
 close(wr)
 
-# using Plots
-# # u = Array(sim.flow.u);
-# # measure_sdf!(sim.flow.σ, sim.body, WaterLily.time(sim.flow));
-# # sdf = Array(sim.flow.σ);
-# σ = Array(zeros(size(sim.flow.σ[:,:,1])));
-# J(I) = CartesianIndex(I[1],I[2],25)
-# @inside σ[I] = ifelse(sim.body.sdf(loc(0,J(I)),0)≥0,√sum(abs2,WaterLily.ω(J(I),u)*sim.L/sim.U),NaN);
-# flood(σ, clims=(-125,1250), axis=([], false), cfill=cgrad(:bone_1, rev=true),
-#       legend=false,border=:none,size=(10*sim.L,sim.L), dpi=1200)
-# savefig("fda_nozzel_vorticity.png")
+using Plots
+σ = Array(zeros(size(sim.flow.σ[:,:,1]))); u = Array(sim.flow.u);
+J(I) = CartesianIndex(I[1],I[2],size(sim.flow.σ,3)÷2)
+@inside σ[I] = ifelse(sim.body.sdf(loc(0,J(I)),0)≥0,√sum(abs2,WaterLily.ω(J(I),u)*sim.L/sim.U),NaN);
+flood(σ, clims=(-125,1250/3), axis=([], false), cfill=cgrad(:bone_1, rev=true),
+      legend=false,border=:none,size=(10*sim.L,sim.L), dpi=1200)
+savefig("fda_nozzel_vorticity.png")
 
-# # plot velocity profiles
-# using Plots
-# stenosis = 0.5
-# profile = []; xs = [1,2,3,4,4.5,5,6,7,8,9,10];
-# profile!(sim,profile;loc=xs)
-# p = plot(title="Instantaneous radial U-velocity profiles",size=(1000,200));
-# for i ∈ 1:length(profile[1])
-#     u = 0.5*profile[1][i][2].+xs[i]
-#     y = (profile[1][i][1].-.5)/sim.L.+0.5
-#     idx = findall(y .≤ 1) # trim to pipe edge
-#     plot!(p,vcat(reverse(u[idx]),u[idx]),vcat(y[idx].-0.5,y[idx]),
-#           color=:black,ls=:dash,label=:none)
-# end
-# h(x) = 4 ≤ x ≤ 5 ? √stenosis*0.125*(1-cos(2π*x)) : 0
-# plot!(p,0:0.01:10,h.(0:0.01:10),color=:black,lw=2,label=:none)
-# plot!(p,0:0.01:10,1.0.-h.(0:0.01:10),color=:black,lw=2,label=:none)
+# plot velocity profiles
+using Plots,ForcePartition
+let
+    profile = []; xs = collect(0:1:15);
+    for x ∈ xs.*sim.L
+        push!(profile,ForcePartition.azimuthal_avrg(u[max(1,Int(x)),:,:,1]))
+    end
+    p = plot(size=(1000,200), aspect_ratio=:equal);
+    for i ∈ 1:length(profile)
+        uᵢ = 0.6.*profile[i][2].+xs[i]
+        y = (profile[i][1].-0.5)/sim.L.+0.5
+        idx = findall(y .≤ 1) # trim to pipe edge
+        plot!(p,vcat(reverse(uᵢ[idx]),uᵢ[idx]),vcat(y[idx].-0.5,y[idx]),
+              color=:black,label=:none,lw=2)
+        plot!(p,[xs[i],xs[i]],[0,1],color=:black,alpha=0.2,lw=0.5,label=:none)
+    end
+    L₁=4537/2400; L₂=10/3; m₁=800/4537
+    S(x::T) where T = 0 ≤ x-3≤ L₁+L₂ ? convert(T,min((x[1]-3)*m₁,1/3)) : zero(T)
+    plot!(p,0:0.01:16,S.(0:0.01:16),color=:black,lw=1,label=:none)
+    plot!(p,0:0.01:16,1.0.-S.(0:0.01:16),color=:black,lw=1,label=:none)
 # savefig(p,"radial_velocity_profiles.png")
+end

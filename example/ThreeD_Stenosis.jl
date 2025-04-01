@@ -1,8 +1,4 @@
 using WaterLily,StaticArrays,WriteVTK,CUDA
-# include("../src/utils.jl")
-
-# Womersley solution to pulsatile flow in a pipe
-# function Womersley()
 
 # make a writer with some attributes
 vtk_velocity(a::Simulation) = a.flow.u |> Array;
@@ -52,15 +48,12 @@ end
 write!(wr,sim)
 close(wr)
 
-
-u = Array(sim.flow.u);
-measure_sdf!(sim.flow.σ, sim.body, WaterLily.time(sim.flow));
-sdf = Array(sim.flow.σ);
-σ = Array(sim.flow.σ);
-@inside σ[I] = ifelse(sdf[I]≥0,abs(WaterLily.curl(3,I,u)),NaN);
-flood(σ[:,:,49], clims=(-0.1,0.5), axis=([], false), cfill=:binary,
-      legend=false,border=:none,size=(10*sim.L,sim.L), dpi=600)
-savefig("pipe_vorticity.png")
+# σ = Array(zeros(size(sim.flow.σ[:,:,1])));
+# J(I) = CartesianIndex(I[1],I[2],size(sim.flow.σ,3)÷2)
+# @inside σ[I] = ifelse(sim.body.sdf(loc(0,J(I)),0)≥0,√sum(abs2,WaterLily.ω(J(I),u)*sim.L/sim.U),NaN);
+# flood(σ, clims=(-125,1250), axis=([], false), cfill=cgrad(:bone_1, rev=true),
+#       legend=false,border=:none,size=(10*sim.L,sim.L), dpi=1200)
+# savefig("pipe_vorticity.png")
 
 # # plot velocity profiles
 # using Plots
