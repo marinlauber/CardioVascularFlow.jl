@@ -5,3 +5,4 @@ examples/Manifest.toml
 *.*vti
 *.*pvsm
 *.*png
+*.jld2

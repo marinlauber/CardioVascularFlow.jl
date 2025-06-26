@@ -38,7 +38,7 @@ S(x,D) = \begin{cases} min\{m₁(x-3D), D/3\} , & 0 ≤ x-3D ≤ L₁+L₂\\
 0, & \text{otherwise.}
 \end{cases}
 ```
-where $L₁=4537/2400$, $L₂=10/3$ and m₁=$800/4537$ and $D$ is the initial diameters. The velocity field is initialized with a parabolic profile at the inlet
+where $L₁=4537/2400$, $L₂=10/3$ and $m₁=800/4537$ and $D$ is the initial diameters. The velocity field is initialized with a parabolic profile at the inlet
 ```math
 \vec{u}(y) = \left[2U \left (1 - \frac{y^2}{(D/2)^2}\right), 0, 0 \right]
 ```
