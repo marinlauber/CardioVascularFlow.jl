@@ -1,4 +1,4 @@
-using WaterLily,StaticArrays,WriteVTK,CUDA
+using WaterLily,StaticArrays,WriteVTK,CUDA,Plots
 
 # make a writer with some attributes
 vtk_velocity(a::AbstractSimulation) = a.flow.u |> Array;
@@ -51,10 +51,15 @@ function make_FDA_nozzle(L=32;U=1.f0/9.f0,Re=2500,mem=Array,T=Float32)
         L/2.f0 - r - 1.5f0 - S(x[1]) # remove radius and add stenosis (and the ghost)
     end
     # analytical solution laminar pipe flow u/U ~ (1-y^2/R^2) ∀ y ∈ [0,L/2]
+    # function u_pipe(i,x,t)
+    #     i ≠ 1 && return 0.f0
+    #     r = √sum(abs2,SA[x[2],x[3]].-L/2.f0)
+    #     return r<L/2.f0-1.5f0 ? 2*U*(1.f0-r^2/(L/2.f0-1.5f0)^2.f0) : 0.f0 # remove radius and add stenosis (and the ghost)
+    # end
     function u_pipe(i,x,t)
-        i ≠ 1 && return 0.f0
-        r = √sum(abs2,SA[x[2],x[3]].-L/2.f0)
-        return r<L/2.f0-1.5f0 ? 2*U*(1.f0-r^2/(L/2.f0-1.5f0)^2.f0) : 0.f0 # remove radius and add stenosis (and the ghost)
+        i ≠ 1 && return zero(eltype(x))
+        r = √sum(abs2,SA[x[2],x[3]].-L÷2)
+        return r<L/2.f0-1.5f0 ? 2*U*(1.f0-r^2/(L/2.f0-1.5f0)^2.f0) : zero(eltype(x)) # remove radius and add stenosis (and the ghost)
     end
     # make geometry
     body = AutoBody(pipe)
@@ -64,24 +69,104 @@ function make_FDA_nozzle(L=32;U=1.f0/9.f0,Re=2500,mem=Array,T=Float32)
     # location of the profiles, zero is at 3L+L₁+L₂
     z₁,z₂,z₃,z₄,z₅,z₆ = -0.088, -0.064, -0.048, -0.02, -0.008, 0.0
     z₇,z₈,z₉,z₁₀,z₁₁,z₁₂ = 0.008, 0.016, 0.024, 0.032, 0.06, 0.08
-    zs = SA[z₁,z₂,z₃,z₄,z₅,z₆,z₇,z₈,z₉,z₁₀,z₁₁,z₁₂]/0.012.*L .+ 3L+L₁+L₂ # z locations for profiles
+    zs = SA{T}[z₁,z₂,z₃,z₄,z₅,z₆,z₇,z₈,z₉,z₁₀,z₁₁,z₁₂]./0.012f0*L .+ (3L+L₁+L₂) # z locations of profiles
 
-    return Simulation((16L,L,L), u_pipe, L; U, ν=U*L/Re, body, mem, T, exitBC=true), convert.(T, zs)
+    return Simulation((16L,L,L), u_pipe, L; U, ν=U*L/Re, body, mem, T, exitBC=true), zs
 end
+
+using WaterLily: Flow,BDIM!,CFL,scale_u!,project!
+function impulsive_start!(a::AbstractSimulation;tol=1e-6,itmx=32,it=32)
+    a.flow.u⁰ .= a.flow.u; scale_u!(a.flow,0)
+    BDIM!(a.flow); project!(a.flow,a.pois;tol,itmx)
+    a.flow.p .= 0
+    a.flow.Δt[1] = CFL(a.flow)
+end
+
+function stats(p::AbstractPoisson)
+    mean_it = sum(p.n)/length(p.n); mean_p = sum(@views(p.n[1:2:end]))/length(@views(p.n[1:2:end]))
+    println("Poisson solver stats: mean iters = ", round(mean_it,digits=3), " (predictor mean = ", round(mean_p,digits=3), ")")
+end
+
+#= NOTE:
+If you want to log residuals during a GPU simulation, it's better to include the following line.
+Otherwise, Julia will generate excessive debugging messages, which can significantly slow down the simulation.
+=#
+using Logging; disable_logging(Logging.Debug)
 
 # sim = make_channel(48;mem=CuArray)
 # sim = make_pipe(48;mem=CuArray)
-sim,zs = make_FDA_nozzle(128;mem=CuArray)
-wr = vtkWriter("FDA_nozzle"; attrib=custom_attrib)
-t₀,duration,tstep = sim_time(sim),50,0.2;
-
-# run
-@time for tᵢ in range(t₀,t₀+duration;step=tstep)
-    sim_step!(sim,tᵢ;remeasure=false,verbose=false)
-    tᵢ>40 && save!(wr,sim)
-    println("tU/L=",round(tᵢ,digits=4),", Δt=",round(sim.flow.Δt[end],digits=3))
+begin
+    sim,zs = make_FDA_nozzle(64;T=Float64,mem=CuArray)
+    WaterLily.logger("test_psolver")
+    impulsive_start!(sim;tol=1e-6,itmx=128,it=32)
+    sim = 0 # free memory
 end
-close(wr)
+# plot_logger("test_psolver")
+
+
+"""
+    Qcriterion2(I::CartesianIndex{3},u)
+
+Q-criterion is a deformation tensor metric to identify vortex cores.
+Also see Jeong, J., & Hussain, F., doi:[10.1017/S0022112095000462](https://doi.org/10.1017/S0022112095000462)
+"""
+function Qcriterion(I::CartesianIndex{3},u)
+    J = @SMatrix [WaterLily.∂(i,j,I,u) for i ∈ 1:3, j ∈ 1:3]
+    S,Ω = (J+J')/2,(J-J')/2
+    ## -0.5*sum(eigvals(S^2+Ω^2)) # this is also possible, but 2x slower
+    0.5*(√(tr(Ω*Ω'))^2-√(tr(S*S'))^2)
+end
+
+# should be cell-centered
+S(I::CartesianIndex{3},u) = @SMatrix [0.5*(WaterLily.∂(i,j,I,u)+WaterLily.∂(j,i,I,u)) for i ∈ 1:3, j ∈ 1:3]
+# scalar stress
+σ_scalar(I,u;μ=1) = √(0.5*sum(abs2,2μ*S(I,u)))
+
+
+function transport!()
+end
+
+# # second invariant viscous stress tensor
+# function Π₂(I::CartesianIndex{3},u;μ=1)
+#     # τ = 2*μ*S(I,u) # shear stress tensor from rate of strain
+#     τ = @SMatrix [μ*WaterLily.∂(i,j,I,u) for i ∈ 1:3, j ∈ 1:3]
+#     0.5*(tr(τ)^2 - tr(τ^2))
+# end
+
+# function VonMisses(I::CartesianIndex{3},u;μ=1)
+#     I₂ = Π₂(I,u;μ)
+#     √(3I₂)
+# end
+
+# function VonMisses2(I,u)
+#     τ = @SVector [WaterLily.∂(i,j,I,u) for (i,j) in zip((1,2,3),(2,3,1))]
+#     √(3*sum(abs2,τ))
+# end
+
+
+
+# # apply!(x->Float32(1024-x[1]),sim.pois.x)
+# # wr = vtkWriter("FDA_nozzle"; attrib=custom_attrib)
+# t₀,duration,tstep = sim_time(sim),50,0.05;
+
+# # helpers
+# σ = Array(zeros(size(sim.flow.σ[:,:,1])));
+# u = Array(sim.flow.u); # CPU arrays
+# @inline J(I) = CartesianIndex(I[1],I[2],size(sim.flow.σ,3)÷2)
+
+# # run
+# using Plots
+# @time @gif for tᵢ in range(t₀,t₀+duration;step=tstep)
+#     sim_step!(sim,tᵢ;remeasure=false,verbose=false)
+#     # tᵢ>40 && save!(wr,sim)
+#     copy!(u,sim.flow.u); σ .= 0
+#     @inside σ[I] = ifelse(sim.body.sdf(loc(0,J(I)),0)≥0,√sum(abs2,WaterLily.ω(J(I),u)*sim.L/sim.U),NaN);
+#     flood(σ, clims=(-125,1250/3), axis=([], false), cfill=cgrad(:bone_1, rev=true),
+#           legend=false,border=:none,size=(10*sim.L,sim.L), dpi=1200)
+#     println("tU/L=",round(tᵢ,digits=4),", Δt=",round(sim.flow.Δt[end],digits=3))
+#     stats(sim.pois) # live poisson solver stats
+# end
+# close(wr)
 
 # using Plots
 # σ = Array(zeros(size(sim.flow.σ[:,:,1]))); u = Array(sim.flow.u);

@@ -1,6 +1,6 @@
 using WaterLily
 using StaticArrays
-include("/home/marin/Workspace/Tutorials-WaterLily/src/TwoD_plots.jl")
+using Plots
 
 # velocity magnitude
 mag(I,u) = √sum(ntuple(i->0.25*(u[I,i]+u[I+δ(i,I),i])^2,length(I)))
@@ -47,11 +47,11 @@ end
 @fastmath function WaterLily.mom_step!(a::Flow{N},b::AbstractPoisson) where N
     a.u⁰ .= a.u; WaterLily.scale_u!(a,0)
     # predictor u → u'
-    WaterLily.conv_diff!(a.f,a.u⁰,a.σ,ν=a.ν,perdir=a.perdir)
+    WaterLily.conv_diff!(a.f,a.u⁰,a.σ,WaterLily.quick,ν=a.ν,perdir=a.perdir)
     WaterLily.BDIM!(a); BC_lid!(a.u)
     WaterLily.project!(a,b); BC_lid!(a.u)
     # corrector u → u¹
-    WaterLily.conv_diff!(a.f,a.u,a.σ,ν=a.ν,perdir=a.perdir)
+    WaterLily.conv_diff!(a.f,a.u,a.σ,WaterLily.quick,ν=a.ν,perdir=a.perdir)
     WaterLily.BDIM!(a); WaterLily.scale_u!(a,0.5); BC_lid!(a.u)
     WaterLily.project!(a,b,0.5); BC_lid!(a.u)
     push!(a.Δt,WaterLily.CFL(a))
@@ -81,8 +81,8 @@ anim = @animate for tᵢ in range(t₀,t₀+duration;step)
 
     # flood plot
     # @inside sim.flow.σ[I] = mag(I,sim.flow.u)
-    # flood(sim.flow.σ|>Array; shift=(-0.5,-0.5),clims=(0,1))
-    flood(scalar.φ|>Array; shift=(-0.5,-0.5),clims=(0,1))
+    # flood(sim.flow.σ; shift=(-0.5,-0.5),clims=(0,1))
+    flood(scalar.φ; shift=(-0.5,-0.5),clims=(0,1))
 
     # print time step
     println("tU/L=",round(tᵢ,digits=4),", Δt=",round(sim.flow.Δt[end],digits=3))

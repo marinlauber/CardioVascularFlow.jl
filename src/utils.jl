@@ -18,7 +18,7 @@ function ellipse(xyz, ab)
     end
     # compute final point and distance
     d = norm(x-ab.*SA[cos(w),sin(w)]);
-    
+
     # return signed distance
     return (dot(x./ab,x./ab)>1.0) ? d : -d
 end
