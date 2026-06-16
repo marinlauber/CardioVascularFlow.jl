@@ -3,7 +3,7 @@ using GeometryBasics, CUDA, WriteVTK
 
 function make_sim(;L=64,Re=5000,U=1,mem=CuArray,T=Float32)
     # extract the good stuff
-    data = jldopen(joinpath("/home/marin/Workspace/FerriteShells.jl/", "limo_motion.jld2"), "r")
+    data = jldopen(joinpath(@__DIR__, "limo_motion.jld2"), "r")
     coordinates = data["coordinates"]
     connectivity = data["connectivity"]
 
@@ -63,40 +63,42 @@ function make_sim(;L=64,Re=5000,U=1,mem=CuArray,T=Float32)
 end
 
 # params
-T = 1.0
 sim, motion_data, c = make_sim(;L=128)
 times = collect(range(0.f0, sim.L, length=size(motion_data, 1)))
 
+# make a motion interpolation from the snapshot
 motion = MotionInterpolation(motion_data, times; periodic=true)
 
 # flow writer
-vtk_velocity(a::AbstractSimulation) = a.flow.u |> Array;
-vtk_μ₀(a::AbstractSimulation) = a.flow.μ₀ |> Array;
-vtk_pressure(a::AbstractSimulation) = a.flow.p |> Array;
-vtk_ω(a::AbstractSimulation) = (@inside a.flow.σ[I] = WaterLily.curl(3,I,a.flow.u); a.flow.σ |> Array);
-vtk_vbody(a::AbstractSimulation) = a.flow.V |> Array;
-vtk_lambda(a::AbstractSimulation) = (@inside a.flow.σ[I] = WaterLily.λ₂(I,a.flow.u); a.flow.σ |> Array);
-vtk_body(a::AbstractSimulation) = (measure_sdf!(a.flow.σ, a.body, sim_time(a); fastd²=10); a.flow.σ |> Array);
-new_attrib = Dict("u"=>vtk_velocity, "μ₀"=>vtk_μ₀, "V"=>vtk_vbody, "p"=>vtk_pressure, "d"=>vtk_body, "λ₂"=>vtk_lambda, "ω₃"=>vtk_ω)
+vtk_velocity(a::AbstractSimulation) = a.flow.u  |> Array;
+vtk_μ₀(a::AbstractSimulation)       = a.flow.μ₀ |> Array;
+vtk_pressure(a::AbstractSimulation) = a.flow.p  |> Array;
+vtk_vbody(a::AbstractSimulation)    = a.flow.V  |> Array;
+vtk_ω(a::AbstractSimulation)        = (@inside a.flow.σ[I] = WaterLily.curl(3,I,a.flow.u);     a.flow.σ |> Array);
+vtk_lambda(a::AbstractSimulation)   = (@inside a.flow.σ[I] = WaterLily.λ₂(I,a.flow.u);         a.flow.σ |> Array);
+vtk_body(a::AbstractSimulation)     = (measure_sdf!(a.flow.σ, a.body, sim_time(a); fastd²=10); a.flow.σ |> Array);
+
+# writer for the flow
+new_attrib = Dict("u"=>vtk_velocity, "μ₀"=>vtk_μ₀,
+                  "V"=>vtk_vbody, "p"=>vtk_pressure,
+                  "d"=>vtk_body, "λ₂"=>vtk_lambda, "ω₃"=>vtk_ω)
 wr = vtkWriter("limo_flow"; attrib=new_attrib)
 
-# save it
+# writer for the structure
 mesh_velocity(a) = [SVector(sum(tri,dims=2)/3) for tri in Array(a.velocity)]
 wr_msh = vtkWriter("limo_mesh", attrib=Dict("velocity"=>mesh_velocity))
 
-# initial state
-save!(wr_msh, sim.body, 0.0)
-save!(wr, sim)
-
-# interpolate and measure
+# Run for a few cycles
 for tᵢ in range(0, 1, step=0.02)
     while sim_time(sim) < tᵢ
         push!(sim.flow.Δt, 0.5)
     end
     @show tᵢ
+    # get the position an mesh velocity at this time
     sim.body = interpolate!(sim.body, motion, WaterLily.time(sim))
+    # measure the new body
     measure!(sim)
-    save!(wr_msh, sim.body, sim_time(sim))
-    save!(wr, sim)
+    # save both the mesh and the flow
+    save!(wr_msh, sim.body, sim_time(sim)); save!(wr, sim)
 end
 close(wr_msh); close(wr)

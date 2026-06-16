@@ -8,7 +8,7 @@ function profile!(sim,profiles) # measure velocity profiles at certain locations
     push!(profiles,l)
 end
 
-function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
+function make_stenosis(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
     h(x::T) where T = 5L ≤ x ≤ 6L ? convert(T,√stenosis*L/4*0.5*(1-cos(2π*x/L))) : zero(T)
     function sdf(x,t)
         r = abs(x[2]-L/2.f0) # move to center of pipe
@@ -22,7 +22,7 @@ function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
     Simulation((20L,L), u_pipe, L; U, ν=U*L/Re, body=AutoBody(sdf), mem, T, exitBC=true)
 end
 
-sim = make_sim2D(128;mem=CuArray)
+sim = make_stenosis(128;mem=CuArray)
 t₀,duration,tstep = sim_time(sim),20,0.1;
 
 # run
@@ -48,4 +48,4 @@ end
 h(x) = 5 ≤ x ≤ 6 ? √stenosis*0.125*(1-cos(2π*x)) : 0
 plot!(p,0:0.01:12,h.(0:0.01:12),color=:black,lw=2,label=:none)
 plot!(p,0:0.01:12,1.0.-h.(0:0.01:12),color=:black,lw=2,label=:none)
-savefig(p,"velocity_profiles.png")
+# savefig(p,"velocity_profiles.png")

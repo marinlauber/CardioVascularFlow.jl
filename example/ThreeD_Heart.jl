@@ -1,8 +1,26 @@
 using WaterLily
 using StaticArrays
 using WriteVTK
-import LinearAlgebra: tr
-include("../src/utils.jl")
+import LinearAlgebra: tr, dot
+
+function ellipse(xyz, ab)
+    # put in symmetry
+    x = SA[abs(xyz[3]),√(xyz[1]^2+xyz[2]^2)]
+
+    # find root with Newton solver
+    q = ab.*(x-ab);
+    w = (q[1]<q[2]) ? π/2.f0 : 0.0f0;
+    for i ∈ 1:5
+        u = ab.*SA[ cos(w),sin(w)]
+        v = ab.*SA[-sin(w),cos(w)]
+        w += dot(x-u,v)/(dot(x-u,u)+dot(v,v));
+    end
+    # compute final point and distance
+    d = norm(x-ab.*SA[cos(w),sin(w)]);
+
+    # return signed distance
+    return (dot(x./ab,x./ab)>1.f00) ? d : -d
+end
 
 function heart(L=2^5;Re=5e3,mem=Array,U=1,AR=1,T=Float32)
 

@@ -1,9 +1,9 @@
 using WaterLily,StaticArrays,Plots,CUDA
 
-function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
-    function sdf(x,t)
-        r = abs(x[2]-L) # move to center of domain
-        x[1] ≤ 0.85f0L ?  max(L/24.f0-r,r-L/2.f0) : 2L-r-1.5f0
+function make_sim2D(L=32;U=1,Re=500,mem=Array,T=Float32)
+    # box sdf, center at c and of half-width w
+    function box(x,t;c=SA[0,L],w=SA[0.85f0L,1.5f0L])
+        d = abs.(x-c)-w; norm(max.(d,0.f0)) + min(max(d[1],d[2]),0.f0)
     end
     function u_pipe(i,x,t)
         i ≠ 1 && return 0.f0
@@ -16,8 +16,8 @@ function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
     function triangle(p,t)
         q = SA[0.25f0L,L]
         px = abs(p[1])
-        a = p .- q.*clamp(p'*q/(q'*q),0,1)
-        b = p .- q.*SA[clamp(px/q[1],0,1),1]
+        a = p .- q.*clamp(p'*q/(q'*q),0.f0,1.f0)
+        b = p .- q.*SA[clamp(px/q[1],0.f0,1.f0),1.f0]
         s = -sign(q[2])
         d = min(SA[a'*a, s*(px*q[2]-p[2]*q[1])],
                 SA[b'*b, s*(p[2]-q[2])])
@@ -29,26 +29,28 @@ function make_sim2D(L=32;stenosis=0.5,U=1,Re=500,mem=Array,T=Float32)
         R*(x-SA[L/20.f0,L])
     end
     # make body, https://www.preprints.org/manuscript/202409.1782/v1
-    body = AutoBody(sdf) - (AutoBody((x,t)->√sum(abs2, x.-SA[L/2.f0,L]) .- L/3.f0) - 
+    body = AutoBody(box) - (AutoBody((x,t)->√sum(abs2, x.-SA[L/2.f0,L]) .- L/3.f0) -
                             (AutoBody((x,t)->√sum(abs2, x.-SA[L/2.f0,L]) .- L/4.5f0) -
-                             AutoBody(triangle,map))
-                            )
+                             AutoBody(triangle,map))) -
+           AutoBody((x,t)->box(x,t;c=SA[0.f0,L],w=SA[2.1f0L,L/24.f0]))
+
     # make sim
     Simulation((4L,2L), u_pipe, L; U, ν=U*L/Re, body, mem, T, exitBC=true)
 end
 
 # perturb
 function force!(flow,t)
-    @WaterLily.loop flow.f[I,2] += 0.1 over I ∈ CartesianIndices((380:400,440:460))
+    @WaterLily.loop flow.f[I,2] += 0.0 over I ∈ CartesianIndices((380:400,440:460))
 end
 
-sim = make_sim2D(512;mem=CuArray)
+sim = make_sim2D(128;mem=Array)
+
+# quick check that we have what we want
 measure_sdf!(sim.flow.σ,sim.body)
-flood(sim.flow.σ, clims=(-1,1))
-# flood(sim.flow.μ₀[:,:,2], clims=(0,1))
-# plot(sim.flow.u[1,:,1]); plot!(sim.flow.σ[2,:], ylims=(-1,2), xlims=(200,300))
+flood(sim.flow.σ,clims=(-1,1))
+
 # run
-t₀,duration,tstep = sim_time(sim),2,0.2;
+t₀,duration,tstep = sim_time(sim),20,0.2;
 @gif for tᵢ in range(t₀,t₀+duration;step=tstep)
     sim_step!(sim,tᵢ;remeasure=false,verbose=false,udf=force!)
     @inside sim.flow.σ[I] = WaterLily.curl(3,I,sim.flow.u)*sim.L/sim.U
