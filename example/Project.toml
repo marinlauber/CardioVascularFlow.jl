@@ -1,6 +1,10 @@
 [deps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 InterfaceAdvection = "7ddc8b3f-1127-48ac-9ed0-0fbc5309d9af"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LilyPad = "e335cd22-3907-46ba-824b-62f80b6bacdb"
+MeshIO = "7269a6da-0436-5bbc-96c2-40638cbb6118"
+Pathlines = "5152f5a6-f176-4b17-91fb-55faba501013"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
