@@ -7,7 +7,7 @@ WaterLily.CFL(a::Flow) = WaterLily.CFL(a;Δt_max=0.25)
 
 function make_sim(;L=64,Re=5000,U=1,mem=Array,T=Float32)
     # extract the good stuff
-    data = open(joinpath(@__DIR__, "Endo_Kasra_xyz.txt"), "r") do file
+    data = open(joinpath(@__DIR__, "endocardium_motion.txt"), "r") do file
         mapreduce(L->parse.(T, split(L)), hcat, readlines(file)[10:end])
     end
     # remove the reference height
